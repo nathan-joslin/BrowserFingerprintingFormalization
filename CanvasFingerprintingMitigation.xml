@@ -1,0 +1,516 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE nta PUBLIC '-//Uppaal Team//DTD Flat System 1.6//EN' 'http://www.it.uu.se/research/group/darts/uppaal/flat-1_6.dtd'>
+<nta>
+	<declaration>const int N = 3; // # of Fingerprinters
+typedef int[0,N-1] id_t; // template id's, one for each Fingerprinter
+const int maxNoise = -100; // "max" noise, domain = [-100,-1], limits state space expansion
+
+// * * Policy Configuration * * //
+
+
+// Policy formats
+typedef int[0,1] listformat_t;
+const listformat_t allowlist = 0;
+const listformat_t blocklist = 1;
+
+// Policy types, indicies in the policy configuration
+const int policyCount = 5;
+typedef int[0, policyCount-1] policy_t;
+const policy_t p_createElement = 0;
+const policy_t p_getCtx = 1;
+const policy_t p_fillText = 2;
+const policy_t p_toDataURL = 3;
+const policy_t p_poison = 4;
+// const policy_t p_timer = 5;
+
+// Policy list, composed of a list and a format (allowlist/blocklist)
+typedef struct {
+    listformat_t type;
+    bool domains[N]; 
+} policylist_t;
+
+// Policy config, composed of a policy list for each policy type
+typedef struct {
+    policylist_t policies[policyCount];
+} policyConfiguration_t;
+
+policyConfiguration_t policyConfig = {
+    {{type: blocklist, domains: {0, 0, 0}}, // p_getElement
+    {type: blocklist, domains: {0, 0, 0}}, // p_getCtx
+    {type: blocklist, domains: {0, 0, 0}}, // p_fill
+    {type: blocklist, domains: {0, 0, 1}}, // p_toDataURL
+    {type: allowlist, domains: {1, 0, 0}}} // p_poison
+};
+
+// arbitrary time a fingerprinter can spend doing its thing
+const int maxTime = 5; // maximum time spend taking actions on a canvas element
+
+// evalPolicy wraps inList to handle different policy configurations, i.e. allowlist or blocklist.
+// it does not perform full policy evalutation, rather it returns true depending on the list type
+// and whether or not it is present. The appropriate functions called on the controller transitions
+// evaluate the context of the policy, determining whether or not the policy should apply in a situation.
+
+// evalPolicy allows us to handle different policy configurations, such
+// as allowlists or blocklists.
+bool evalPolicy(policy_t policy, id_t fp) {
+    policyConfiguration_t pCfg = policyConfig; // global policy configuration
+
+    policy_t pltype = pCfg.policies[policy].type;
+    bool res = pCfg.policies[policy].domains[fp]; 
+    if (blocklist == pltype) {
+        res = !res;
+    }
+    return res;
+}
+
+// Channel context, allowing us to assign aribitrary contexts to integer values.
+// contexts represent any variable accessible by the controller that aids in policy evaluation.
+// Example: We only care to monitor canvas elements, if the element is not canvas we can ignore it.
+const int contexts = 2;
+typedef int[0,contexts] ctx_t;
+
+// channel types, one for each method/func monitored
+// channels for each Fingerprinter process
+chan createElem[N]; // document.CreateElement()
+int elemType[N];
+const ctx_t canvasElem = 1;
+const ctx_t otherElem = 2; // representing anything other than a canvas element
+
+chan getCtx[N]; // canvas.getContext()
+chan fillText[N]; // context.fillText()
+chan toDataURL[N]; // canvas.toDataURL()
+
+
+// * * Fingerprinter Invariants * * //
+// - Invariants are managed by the controller
+// - An abstraction of a canvas element and the methods used to create/modify it
+// - One element should be defined for each Fingerprinter component
+
+typedef struct {
+    // invariants
+    bool create;
+    bool context;
+    bool fill;
+    bool collect;
+    // attribute value
+    int[maxNoise,N+1] value; // [-100,-1] = poison; [0] = default/blocked; [1,N+1] non-poisoned/non-blocked
+} elem_t;
+
+// invariants to false  by default
+elem_t elements[N] = {
+    {false, false, false, false, 0},
+    {false, false, false, false, 0},
+    {false, false, false, false, 0}
+};
+
+// timers for how long it has taken since the canvas var was created
+// ideally we would include this in the elem_t struct, but we can't 
+// https://docs.uppaal.org/language-reference/system-description/declarations/#examples
+clock t[N];
+
+// * * Server Communication
+chan postData[N];
+
+// * * Helper Functions * * //
+
+// resetElem resets an element's invariants. it does
+// no reset the clock, which is done on element creation.
+// resetting is easier than creating a new one, plus
+// we can reduce state space by not worrying about maximum elements;
+// after all a fingerprinting script will only act on a single element
+void resetElem(id_t fp) 
+{
+    elements[fp].create = false;
+    elements[fp].context = false;
+    elements[fp].fill = false;
+    elements[fp].collect = false;
+    elements[fp].value = 0;
+}
+
+
+
+
+
+
+</declaration>
+	<template>
+		<name x="5" y="5">Controller</name>
+		<declaration>
+
+// - Poisoned values are always negative; the value itself is arbitrary, 
+//   we simply ensure that the value at time t=1 != value at t=2.
+// - A non-poisoned, and blocked, attribute is equal to 0.
+// - A non-poisoned attribute is the Fingerprinter id+1 (ensuring non-zero).
+int noise = -1; 
+
+// poison adds arbitrary noise to a canvas element, poisoning the fingerprint 
+// attribute value. To reduce state space expansion we simply set to a domain 
+// restricted value, otherwise the domain would be that of a hash.
+void poison(id_t fp)
+{
+    elements[fp].value = noise;
+    if (noise == maxNoise) { // ensure non-zero by not using modulo
+        noise = -1;
+    } else {
+        noise--;
+    }
+}
+
+// f_createElem instantiates an element and performs policy 
+// evaluation for the document.createElement() func.
+void f_createElem(id_t fp, ctx_t ctx)
+{
+    // policy is only concerned with canvas elements
+    if (canvasElem == ctx) {
+        elements[fp].create = evalPolicy(p_createElement, fp);
+    } else {
+        elements[fp].create = true;
+    }
+}
+
+// f_getCtx performs policy evaluation for the canvas.getCtx() func.
+ void f_getCtx(id_t fp)
+{    
+    elements[fp].context = evalPolicy(p_getCtx, fp);
+}
+
+// f_toDataURL sets the value of the canvas attribute and performs
+// policy evaluation for the canvas.toDataURL() func. 
+void f_toDataURL(id_t fp)
+{
+    // call the original canvas.toDataURL() func then apply policies
+    elements[fp].value = fp+1; // ensure non-zero, which is the default value
+
+    // not so intuitive, so we must flip the result
+    if (!evalPolicy(p_poison, fp)) {
+        poison(fp);
+    }
+
+    elements[fp].collect = evalPolicy(p_toDataURL, fp);
+}
+
+// f_fillText performs policy evaluation for the 
+// (canvas) context.fillText() func.
+void f_fillText(id_t fp)
+{
+    elements[fp].fill = evalPolicy(p_fillText, fp);
+}
+
+
+</declaration>
+		<location id="id0" x="0" y="-17">
+			<name x="-136" y="-68">Run_Controller</name>
+		</location>
+		<init ref="id0"/>
+		<transition id="id1">
+			<source ref="id0"/>
+			<target ref="id0"/>
+			<label kind="select" x="-25" y="110">id : id_t</label>
+			<label kind="synchronisation" x="-25" y="135">fillText[id]?</label>
+			<label kind="assignment" x="-25" y="152">f_fillText(id)</label>
+			<nail x="25" y="102"/>
+			<nail x="-25" y="102"/>
+		</transition>
+		<transition id="id2">
+			<source ref="id0"/>
+			<target ref="id0"/>
+			<label kind="select" x="-25" y="-204">id : id_t</label>
+			<label kind="synchronisation" x="-25" y="-178">createElem[id]?</label>
+			<label kind="assignment" x="-25" y="-161">f_createElem(id, elemType[id])</label>
+			<nail x="-25" y="-136"/>
+			<nail x="25" y="-136"/>
+		</transition>
+		<transition id="id3">
+			<source ref="id0"/>
+			<target ref="id0"/>
+			<label kind="select" x="-246" y="-34">id : id_t</label>
+			<label kind="synchronisation" x="-246" y="-8">toDataURL[id]?</label>
+			<label kind="assignment" x="-246" y="8">f_toDataURL(id)</label>
+			<nail x="-128" y="8"/>
+			<nail x="-128" y="-34"/>
+		</transition>
+		<transition id="id4">
+			<source ref="id0"/>
+			<target ref="id0"/>
+			<label kind="select" x="144" y="-43">id : id_t</label>
+			<label kind="synchronisation" x="144" y="-17">getCtx[id]?</label>
+			<label kind="assignment" x="144" y="0">f_getCtx(id)</label>
+			<nail x="127" y="-35"/>
+			<nail x="127" y="7"/>
+		</transition>
+	</template>
+	<template>
+		<name>NonFingerprinter</name>
+		<parameter>const id_t id, const bool Periodic</parameter>
+		<location id="id5" x="102" y="238">
+			<name x="51" y="212">Done</name>
+		</location>
+		<location id="id6" x="204" y="136">
+			<name x="221" y="111">Start_NonFP</name>
+		</location>
+		<location id="id7" x="204" y="238">
+			<name x="221" y="213">Create</name>
+			<label kind="invariant" x="221" y="230">elements[id].create</label>
+		</location>
+		<init ref="id6"/>
+		<transition id="id8">
+			<source ref="id7"/>
+			<target ref="id6"/>
+			<label kind="guard" x="102" y="170">Periodic</label>
+			<nail x="170" y="204"/>
+			<nail x="170" y="170"/>
+		</transition>
+		<transition id="id9">
+			<source ref="id7"/>
+			<target ref="id5"/>
+			<label kind="guard" x="119" y="246">!Periodic</label>
+		</transition>
+		<transition id="id10">
+			<source ref="id6"/>
+			<target ref="id7"/>
+			<label kind="synchronisation" x="221" y="145">createElem[id]!</label>
+			<label kind="assignment" x="221" y="162">elemType[id] = otherElem</label>
+		</transition>
+	</template>
+	<template>
+		<name>Server</name>
+		<declaration>// * * Server Database * *
+
+// database capacity =  N * max_entries
+// i.e. max fingerprint values in database = (number of fingerprinters) * (max values per fingerprinter)
+
+const int max_entries = 3; // max fingerprint values per fingerprinter
+
+// entries_t represents a collection of database entries for a given fingerprinter.
+typedef struct {
+    int entries[max_entries]; // fingerprint values, managed as a queue
+    int[0,max_entries] len;
+} entries_t;
+
+entries_t db[N]; // database capacity scales to the number of fingerprinters
+
+// Remove the front element of the queue, i.e. the oldest fingerprint value.
+// Only called by enqueue for capacity management.
+void dequeue(id_t fp)
+{
+        int i = 0;
+        db[fp].len -= 1;
+        while (i &lt; db[fp].len)
+        {
+                db[fp].entries[i] = db[fp].entries[i + 1];
+                i++;
+        }
+        db[fp].entries[i] = 0;
+}
+
+// Put an element at the end of a Fingerprinter's queue, removing the oldest entry
+// first if it's at capacity.
+void enqueue(id_t fp, int value)
+{
+        if (db[fp].len == max_entries) {
+               dequeue(fp);
+        }
+        db[fp].entries[db[fp].len++] = value;
+}
+
+</declaration>
+		<location id="id11" x="0" y="0">
+			<name x="-93" y="-42">Run_Server</name>
+		</location>
+		<init ref="id11"/>
+		<transition id="id12">
+			<source ref="id11"/>
+			<target ref="id11"/>
+			<label kind="select" x="102" y="-76">id : id_t</label>
+			<label kind="synchronisation" x="102" y="-51">postData[id]?</label>
+			<label kind="assignment" x="102" y="-34">enqueue(id, elements[id].value)</label>
+			<nail x="68" y="-68"/>
+			<nail x="102" y="-34"/>
+		</transition>
+	</template>
+	<template>
+		<name>FingerprinterText</name>
+		<parameter>const id_t id, const bool Periodic, const int fRepeats</parameter>
+		<declaration>int fCount = 0;</declaration>
+		<location id="id13" x="178" y="-323">
+			<name x="204" y="-357">Start_FP</name>
+			<label kind="invariant" x="204" y="-340">!elements[id].create
+&amp;&amp; (t[id] &lt; 1)</label>
+		</location>
+		<location id="id14" x="178" y="-59">
+			<name x="204" y="-93">Context</name>
+			<label kind="invariant" x="204" y="-76">elements[id].context
+&amp;&amp; !elements[id].fill
+&amp;&amp; (t[id] &lt; 3)</label>
+		</location>
+		<location id="id15" x="-110" y="-59">
+			<name x="-93" y="-85">Collect</name>
+			<label kind="invariant" x="-93" y="-68">elements[id].collect
+&amp;&amp; (t[id] &lt; (5+fRepeats))</label>
+		</location>
+		<location id="id16" x="-110" y="-204">
+			<name x="-93" y="-229">Send</name>
+			<label kind="invariant" x="-93" y="-212">(t[id] &lt;= (6+fRepeats))</label>
+		</location>
+		<location id="id17" x="-212" y="-204">
+			<name x="-263" y="-229">Done</name>
+		</location>
+		<location id="id18" x="178" y="-203">
+			<name x="203" y="-220">Create</name>
+			<label kind="invariant" x="203" y="-203">elements[id].create
+&amp;&amp; !elements[id].context
+&amp;&amp; (t[id] &lt; 2)</label>
+		</location>
+		<location id="id19" x="178" y="93">
+			<name x="204" y="68">FillText</name>
+			<label kind="invariant" x="204" y="85">elements[id].fill
+&amp;&amp; !elements[id].collect
+&amp;&amp; (t[id] &lt; (4+fRepeats))</label>
+		</location>
+		<init ref="id13"/>
+		<transition id="id20">
+			<source ref="id19"/>
+			<target ref="id19"/>
+			<label kind="guard" x="25" y="8">fCount &lt; fRepeats</label>
+			<label kind="synchronisation" x="25" y="25">fillText[id]!</label>
+			<label kind="assignment" x="25" y="42">fCount++</label>
+			<nail x="119" y="59"/>
+			<nail x="153" y="34"/>
+		</transition>
+		<transition id="id21">
+			<source ref="id19"/>
+			<target ref="id15"/>
+			<label kind="guard" x="-17" y="93">fCount &gt;= fRepeats</label>
+			<label kind="synchronisation" x="17" y="110">toDataURL[id]!</label>
+			<nail x="-110" y="93"/>
+		</transition>
+		<transition id="id22">
+			<source ref="id14"/>
+			<target ref="id14"/>
+			<label kind="synchronisation" x="34" y="-127">fillText[id]!</label>
+			<nail x="119" y="-93"/>
+			<nail x="153" y="-119"/>
+		</transition>
+		<transition id="id23">
+			<source ref="id18"/>
+			<target ref="id18"/>
+			<label kind="synchronisation" x="51" y="-272">getCtx[id]!</label>
+			<nail x="119" y="-238"/>
+			<nail x="153" y="-263"/>
+		</transition>
+		<transition id="id24">
+			<source ref="id13"/>
+			<target ref="id13"/>
+			<label kind="synchronisation" x="0" y="-399">createElem[id]!</label>
+			<label kind="assignment" x="-84" y="-382">elemType[id] = canvasElem</label>
+			<nail x="119" y="-366"/>
+			<nail x="153" y="-391"/>
+		</transition>
+		<transition id="id25">
+			<source ref="id16"/>
+			<target ref="id13"/>
+			<label kind="guard" x="-102" y="-297">Periodic</label>
+			<label kind="assignment" x="-101" y="-280">resetElem(id),
+t[id] = 0</label>
+			<nail x="-110" y="-323"/>
+		</transition>
+		<transition id="id26">
+			<source ref="id14"/>
+			<target ref="id19"/>
+			<label kind="synchronisation" x="187" y="17">fillText[id]!</label>
+			<label kind="assignment" x="187" y="34">fCount = 1</label>
+		</transition>
+		<transition id="id27">
+			<source ref="id18"/>
+			<target ref="id14"/>
+			<label kind="synchronisation" x="187" y="-127">getCtx[id]!</label>
+			<nail x="178" y="-144"/>
+		</transition>
+		<transition id="id28">
+			<source ref="id13"/>
+			<target ref="id18"/>
+			<label kind="synchronisation" x="187" y="-289">createElem[id]!</label>
+			<label kind="assignment" x="187" y="-272">elemType[id] = canvasElem</label>
+			<nail x="178" y="-280"/>
+		</transition>
+		<transition id="id29">
+			<source ref="id16"/>
+			<target ref="id17"/>
+			<label kind="guard" x="-203" y="-229">!Periodic</label>
+		</transition>
+		<transition id="id30">
+			<source ref="id15"/>
+			<target ref="id16"/>
+			<label kind="synchronisation" x="-101" y="-144">postData[id]!</label>
+		</transition>
+	</template>
+	<system>// Policies are defined in the global declarations.
+
+// Declare Fingerprinter components, should be equal to N (in global declarations).
+FP_0 = FingerprinterText(0, true, 2); // true = repeat indefintely, false = 1 iteration
+FP_1 = FingerprinterText(1, true, 2); 
+FP_2 = FingerprinterText(2, true, 2);
+
+
+system Controller, Server, FP_0, FP_1, FP_2;</system>
+	<queries>
+		<query>
+			<formula>A[] FP_2.Collect imply !evalPolicy(p_toDataURL, 2)</formula>
+			<comment>For all reachable states, being in the location FP_2.Collect implies that the policy configuration allows this, i.e. allows the data to be collected. This query is policy configuration dependent.</comment>
+			<result outcome="success" type="quality" timestamp="2024-08-28 16:44:33 -0400">
+			</result>
+		</query>
+		<query>
+			<formula>A[] FP_1.Collect imply (elements[1].value &lt; 0)</formula>
+			<comment>If FP_1 is in the collect state then the fingerprinter value is poisoned. This query is policy configuration dependent.</comment>
+			<result outcome="success" type="quality" timestamp="2024-08-23 11:14:44 -0400">
+			</result>
+		</query>
+		<query>
+			<formula>A[] FP_0.Collect imply (elements[0].value &gt; 0)</formula>
+			<comment>If FP_0 is in the collect state then the fingerprinter value is NOT poisoned. This query is policy configuration dependent.</comment>
+			<result outcome="success" type="quality" timestamp="2024-08-23 11:14:49 -0400">
+			</result>
+		</query>
+		<query>
+			<formula>A[] !evalPolicy(p_toDataURL, 2)</formula>
+			<comment>This is a test to ensure a policy never changes.</comment>
+			<result outcome="success" type="quality" timestamp="2024-08-23 12:10:42 -0400">
+			</result>
+		</query>
+		<query>
+			<formula>A[] !FP_2.Collect</formula>
+			<comment/>
+		</query>
+		<query>
+			<formula>E&lt;&gt; (Server.db[0].len == 2 &amp;&amp; (Server.db[0].entries[0] == Server.db[0].entries[1]))</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2024-08-28 17:54:52 -0400">
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; (Server.db[1].len == 2 &amp;&amp; (Server.db[1].entries[0] == Server.db[1].entries[1]))</formula>
+			<comment/>
+			<result outcome="failure" type="quality" timestamp="2024-08-28 17:43:36 -0400">
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; FP_0.Collect</formula>
+			<comment>liveness property</comment>
+			<result outcome="success" type="quality" timestamp="2024-08-26 13:56:41 -0400">
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; FP_1.Collect</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2024-08-26 14:01:57 -0400">
+			</result>
+		</query>
+		<query>
+			<formula>E&lt;&gt; FP_2.Collect</formula>
+			<comment/>
+			<result outcome="failure" type="quality" timestamp="2024-08-28 17:29:04 -0400">
+			</result>
+		</query>
+	</queries>
+</nta>
