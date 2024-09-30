@@ -96,7 +96,7 @@ typedef struct {
     int[maxNoise,N+1] value; // [-100,-1] = poison; [0] = default/blocked; [1,N+1] non-poisoned/non-blocked
 } elem_t;
 
-// invariants to false  by default
+// invariants set to false by default
 elem_t elements[N] = {
     {false, false, false, false, 0},
     {false, false, false, false, 0},
@@ -135,9 +135,7 @@ void resetElem(id_t fp)
 </declaration>
 	<template>
 		<name x="5" y="5">Controller</name>
-		<declaration>
-
-// - Poisoned values are always negative; the value itself is arbitrary, 
+		<declaration>// - Poisoned values are always negative; the value itself is arbitrary, 
 //   we simply ensure that the value at time t=1 != value at t=2.
 // - A non-poisoned, and blocked, attribute is equal to 0.
 // - A non-poisoned attribute is the Fingerprinter id+1 (ensuring non-zero).
@@ -275,7 +273,6 @@ void f_fillText(id_t fp)
 	<template>
 		<name>Server</name>
 		<declaration>// * * Server Database * *
-
 // database capacity =  N * max_entries
 // i.e. max fingerprint values in database = (number of fingerprinters) * (max values per fingerprinter)
 
@@ -447,13 +444,15 @@ t[id] = 0</label>
 	<system>// Policies are defined in the global declarations.
 
 // Declare Fingerprinter components, should be equal to N (in global declarations).
+// args: ID, Periodic, FillText Loop
 FP_0 = FingerprinterText(0, true, 2); // true = repeat indefintely, false = 1 iteration
 FP_1 = FingerprinterText(1, true, 2); 
 FP_2 = FingerprinterText(2, true, 2);
 
-
-system Controller, Server, FP_0, FP_1, FP_2;</system>
+system Controller, Server, FP_0, FP_1, FP_2;
+// system Controller, Server, FP_0;</system>
 	<queries>
+		<option key="--diagnostic" value="-1"/>
 		<query>
 			<formula>A[] FP_2.Collect imply !evalPolicy(p_toDataURL, 2)</formula>
 			<comment>For all reachable states, being in the location FP_2.Collect implies that the policy configuration allows this, i.e. allows the data to be collected. This query is policy configuration dependent.</comment>
@@ -463,8 +462,6 @@ system Controller, Server, FP_0, FP_1, FP_2;</system>
 		<query>
 			<formula>A[] FP_1.Collect imply (elements[1].value &lt; 0)</formula>
 			<comment>If FP_1 is in the collect state then the fingerprinter value is poisoned. This query is policy configuration dependent.</comment>
-			<result outcome="success" type="quality" timestamp="2024-08-23 11:14:44 -0400">
-			</result>
 		</query>
 		<query>
 			<formula>A[] FP_0.Collect imply (elements[0].value &gt; 0)</formula>
@@ -484,14 +481,14 @@ system Controller, Server, FP_0, FP_1, FP_2;</system>
 		</query>
 		<query>
 			<formula>E&lt;&gt; (Server.db[0].len == 2 &amp;&amp; (Server.db[0].entries[0] == Server.db[0].entries[1]))</formula>
-			<comment/>
+			<comment>Expected Result: True</comment>
 			<result outcome="success" type="quality" timestamp="2024-08-28 17:54:52 -0400">
 			</result>
 		</query>
 		<query>
 			<formula>E&lt;&gt; (Server.db[1].len == 2 &amp;&amp; (Server.db[1].entries[0] == Server.db[1].entries[1]))</formula>
-			<comment/>
-			<result outcome="failure" type="quality" timestamp="2024-08-28 17:43:36 -0400">
+			<comment>Expected Result: False</comment>
+			<result outcome="failure" type="quality" timestamp="2024-09-24 16:41:58 -0400">
 			</result>
 		</query>
 		<query>
@@ -510,6 +507,41 @@ system Controller, Server, FP_0, FP_1, FP_2;</system>
 			<formula>E&lt;&gt; FP_2.Collect</formula>
 			<comment/>
 			<result outcome="failure" type="quality" timestamp="2024-08-28 17:29:04 -0400">
+			</result>
+		</query>
+		<query>
+			<formula>A&lt;&gt; (Server.db[0].len &gt; 0) &amp;&amp; (Server.db[0].entries[0] == Server.db[0].entries[1]) &amp;&amp; (Server.db[0].entries[1] == Server.db[0].entries[2])</formula>
+			<comment>Eventually all database entries for FP_0 are the same. Validates randomization.
+Expected Result: True
+
+Note: This property should be ran with a single Fingerprinter instance, modify the "System Declarations"
+in the Editor to do so.
+
+Note2: The first part of this property (Server.db[x].len &gt; 0) is crucial as the initial state of the
+system satifies the remainder of the property. This ensures the system is not in the initial state.</comment>
+			<result outcome="success" type="quality" timestamp="2024-09-30 10:39:10 -0400">
+				<option key="--diagnostic" value="-1"/>
+			</result>
+		</query>
+		<query>
+			<formula>A&lt;&gt; (Server.db[1].len &gt; 0) &amp;&amp; (Server.db[1].entries[0] == Server.db[1].entries[1]) &amp;&amp; (Server.db[1].entries[1] == Server.db[1].entries[2])</formula>
+			<comment>Eventually all database entries for FP_1 are the same. Validates randomization.
+Expected Result: False.
+
+Note: This property should be ran with a single Fingerprinter instance, modify the "System Declarations"
+in the Editor to do so.
+
+Note2: The first part of this property (Server.db[x].len &gt; 0) is crucial as the initial state of the
+system satifies the remainder of the property. This ensures the system is not in the initial state.</comment>
+			<result outcome="failure" type="quality" timestamp="2024-09-30 10:37:00 -0400">
+				<option key="--diagnostic" value="-1"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] (Server.db[2].len ==0)</formula>
+			<comment>The database never receives entries for FP_2.</comment>
+			<result outcome="success" type="quality" timestamp="2024-09-30 10:38:32 -0400">
+				<option key="--diagnostic" value="-1"/>
 			</result>
 		</query>
 	</queries>
