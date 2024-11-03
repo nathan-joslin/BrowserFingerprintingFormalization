@@ -454,19 +454,24 @@ system Controller, Server, FP_0, FP_1, FP_2;
 	<queries>
 		<option key="--diagnostic" value="-1"/>
 		<query>
-			<formula>A[] FP_2.Collect imply !evalPolicy(p_toDataURL, 2)</formula>
+			<formula>A[] FP_2.Collect imply evalPolicy(p_toDataURL, 2)</formula>
 			<comment>For all reachable states, being in the location FP_2.Collect implies that the policy configuration allows this, i.e. allows the data to be collected. This query is policy configuration dependent.</comment>
-			<result outcome="success" type="quality" timestamp="2024-08-28 16:44:33 -0400">
+			<result outcome="success" type="quality" timestamp="2024-11-02 14:37:49 -0400">
+				<option key="--diagnostic" value="-1"/>
 			</result>
 		</query>
 		<query>
 			<formula>A[] FP_1.Collect imply (elements[1].value &lt; 0)</formula>
 			<comment>If FP_1 is in the collect state then the fingerprinter value is poisoned. This query is policy configuration dependent.</comment>
+			<result outcome="success" type="quality" timestamp="2024-11-02 13:40:41 -0400">
+				<option key="--diagnostic" value="-1"/>
+			</result>
 		</query>
 		<query>
 			<formula>A[] FP_0.Collect imply (elements[0].value &gt; 0)</formula>
 			<comment>If FP_0 is in the collect state then the fingerprinter value is NOT poisoned. This query is policy configuration dependent.</comment>
-			<result outcome="success" type="quality" timestamp="2024-08-23 11:14:49 -0400">
+			<result outcome="success" type="quality" timestamp="2024-11-02 13:40:38 -0400">
+				<option key="--diagnostic" value="-1"/>
 			</result>
 		</query>
 		<query>
@@ -478,6 +483,9 @@ system Controller, Server, FP_0, FP_1, FP_2;
 		<query>
 			<formula>A[] !FP_2.Collect</formula>
 			<comment/>
+			<result outcome="success" type="quality" timestamp="2024-11-02 13:53:29 -0400">
+				<option key="--diagnostic" value="-1"/>
+			</result>
 		</query>
 		<query>
 			<formula>E&lt;&gt; (Server.db[0].len == 2 &amp;&amp; (Server.db[0].entries[0] == Server.db[0].entries[1]))</formula>
@@ -488,26 +496,27 @@ system Controller, Server, FP_0, FP_1, FP_2;
 		<query>
 			<formula>E&lt;&gt; (Server.db[1].len == 2 &amp;&amp; (Server.db[1].entries[0] == Server.db[1].entries[1]))</formula>
 			<comment>Expected Result: False</comment>
-			<result outcome="failure" type="quality" timestamp="2024-09-24 16:41:58 -0400">
+			<result outcome="failure" type="quality" timestamp="2024-11-02 13:40:55 -0400">
+				<option key="--diagnostic" value="-1"/>
 			</result>
 		</query>
 		<query>
 			<formula>E&lt;&gt; FP_0.Collect</formula>
 			<comment>liveness property</comment>
-			<result outcome="success" type="quality" timestamp="2024-08-26 13:56:41 -0400">
+			<result outcome="success" type="quality" timestamp="2024-11-02 13:35:31 -0400">
+				<option key="--diagnostic" value="-1"/>
 			</result>
 		</query>
 		<query>
 			<formula>E&lt;&gt; FP_1.Collect</formula>
 			<comment/>
-			<result outcome="success" type="quality" timestamp="2024-08-26 14:01:57 -0400">
+			<result outcome="success" type="quality" timestamp="2024-11-02 13:35:29 -0400">
+				<option key="--diagnostic" value="-1"/>
 			</result>
 		</query>
 		<query>
 			<formula>E&lt;&gt; FP_2.Collect</formula>
 			<comment/>
-			<result outcome="failure" type="quality" timestamp="2024-08-28 17:29:04 -0400">
-			</result>
 		</query>
 		<query>
 			<formula>A&lt;&gt; (Server.db[0].len &gt; 0) &amp;&amp; (Server.db[0].entries[0] == Server.db[0].entries[1]) &amp;&amp; (Server.db[0].entries[1] == Server.db[0].entries[2])</formula>
@@ -538,9 +547,37 @@ system satifies the remainder of the property. This ensures the system is not in
 			</result>
 		</query>
 		<query>
-			<formula>A[] (Server.db[2].len ==0)</formula>
+			<formula>A[] (Server.db[2].len == 0)</formula>
 			<comment>The database never receives entries for FP_2.</comment>
-			<result outcome="success" type="quality" timestamp="2024-09-30 10:38:32 -0400">
+			<result outcome="success" type="quality" timestamp="2024-09-30 10:42:14 -0400">
+				<option key="--diagnostic" value="-1"/>
+			</result>
+		</query>
+		<query>
+			<formula>E[] ((Server.db[0].len == Server.max_entries) &amp;&amp; (Server.db[0].entries[0] == Server.db[0].entries[1]) &amp;&amp; (Server.db[0].entries[1] == Server.db[0].entries[2]))</formula>
+			<comment/>
+			<result outcome="failure" type="quality" timestamp="2024-10-23 18:50:26 -0400">
+				<option key="--diagnostic" value="-1"/>
+			</result>
+		</query>
+		<query>
+			<formula>A[] FP_0.Collect imply evalPolicy(p_toDataURL, 1)</formula>
+			<comment/>
+			<result outcome="success" type="quality" timestamp="2024-11-02 14:38:31 -0400">
+				<option key="--diagnostic" value="-1"/>
+			</result>
+		</query>
+		<query>
+			<formula>A&lt;&gt; FP_0.Collect</formula>
+			<comment/>
+			<result outcome="failure" type="quality" timestamp="2024-11-03 13:09:55 -0500">
+				<option key="--diagnostic" value="-1"/>
+			</result>
+		</query>
+		<query>
+			<formula>A&lt;&gt; FP_1.Collect</formula>
+			<comment/>
+			<result outcome="failure" type="quality" timestamp="2024-11-03 13:10:45 -0500">
 				<option key="--diagnostic" value="-1"/>
 			</result>
 		</query>
