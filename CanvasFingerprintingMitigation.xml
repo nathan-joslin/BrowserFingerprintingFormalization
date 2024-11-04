@@ -3,7 +3,6 @@
 <nta>
 	<declaration>const int N = 3; // # of Fingerprinters
 typedef int[0,N-1] id_t; // template id's, one for each Fingerprinter
-const int maxNoise = -100; // "max" noise, domain = [-100,-1], limits state space expansion
 
 // * * Policy Configuration * * //
 
@@ -45,13 +44,10 @@ policyConfiguration_t policyConfig = {
 // arbitrary time a fingerprinter can spend doing its thing
 const int maxTime = 5; // maximum time spend taking actions on a canvas element
 
-// evalPolicy wraps inList to handle different policy configurations, i.e. allowlist or blocklist.
-// it does not perform full policy evalutation, rather it returns true depending on the list type
-// and whether or not it is present. The appropriate functions called on the controller transitions
-// evaluate the context of the policy, determining whether or not the policy should apply in a situation.
-
-// evalPolicy allows us to handle different policy configurations, such
-// as allowlists or blocklists.
+// evalPolicy allows us to support a wider variety policy configurations.
+// It does not perform full policy evalutation, rather it is meant to be
+// called by controller update functions who determine if the policy
+// applies given the context of the function call intercepted.
 bool evalPolicy(policy_t policy, id_t fp) {
     policyConfiguration_t pCfg = policyConfig; // global policy configuration
 
@@ -82,18 +78,20 @@ chan toDataURL[N]; // canvas.toDataURL()
 
 
 // * * Fingerprinter Invariants * * //
-// - Invariants are managed by the controller
 // - An abstraction of a canvas element and the methods used to create/modify it
+// - Invariants are managed by the controller
 // - One element should be defined for each Fingerprinter component
-
 typedef struct {
     // invariants
     bool create;
     bool context;
     bool fill;
     bool collect;
-    // attribute value
-    int[maxNoise,N+1] value; // [-100,-1] = poison; [0] = default/blocked; [1,N+1] non-poisoned/non-blocked
+    // attribute value, domains:
+    // poison = [-100,-1]
+    // no-data/blocked = [0] 
+    // no-mitigation = [1,N+1]
+    int[maxNoise,N+1] value;
 } elem_t;
 
 // invariants set to false by default
@@ -139,7 +137,8 @@ void resetElem(id_t fp)
 //   we simply ensure that the value at time t=1 != value at t=2.
 // - A non-poisoned, and blocked, attribute is equal to 0.
 // - A non-poisoned attribute is the Fingerprinter id+1 (ensuring non-zero).
-int noise = -1; 
+int noise = -1;
+const int maxNoise = -100; // "max" noise, domain = [-100,-1], limits state space expansion
 
 // poison adds arbitrary noise to a canvas element, poisoning the fingerprint 
 // attribute value. To reduce state space expansion we simply set to a domain 
